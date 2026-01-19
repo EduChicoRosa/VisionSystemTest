@@ -2,72 +2,79 @@ import cv2
 import json
 import numpy as np
 
-# Configurações
+# --- CONFIGURAÇÕES ---
 ARQUIVO_CONFIG = "config_bandeja.json"
 RAIO_PADRAO = 60
 CAMERA_ID = 1 
 
-pontos_clicados = []
+pontos_bandeja = [] # 4 pontos dos cantos
+pontos_bercos = []  # 8 pontos dos centros
 
 def mouse_callback(event, x, y, flags, param):
+    global pontos_bandeja, pontos_bercos
     if event == cv2.EVENT_LBUTTONDOWN:
-        if len(pontos_clicados) < 8:
-            # Importante: O clique é registrado na imagem original (1920x1080)
-            # mesmo que a janela de exibição seja menor.
-            pontos_clicados.append((x, y))
-            print(f"Ponto {len(pontos_clicados)} registrado: ({x}, {y})")
+        # Primeiro coleta os 4 cantos da bandeja
+        if len(pontos_bandeja) < 4:
+            pontos_bandeja.append((x, y))
+            print(f"Canto da Bandeja {len(pontos_bandeja)}: ({x}, {y})")
+        # Depois os 8 berços
+        elif len(pontos_bercos) < 8:
+            pontos_bercos.append((x, y))
+            print(f"Berço {len(pontos_bercos)}: ({x}, {y})")
 
 def calibrar():
     cap = cv2.VideoCapture(CAMERA_ID)
-    
-    # Forçamos a GoPro a entregar 1080p para evitar o "zoom" de baixa resolução
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-    # Criamos uma janela redimensionável
-    cv2.namedWindow("Calibrador de Bandeja", cv2.WINDOW_NORMAL)
-    # Redimensionamos a janela para caber no seu monitor (ex: 1280x720)
-    cv2.resizeWindow("Calibrador de Bandeja", 1280, 720)
-    cv2.setMouseCallback("Calibrador de Bandeja", mouse_callback)
+    cv2.namedWindow("Calibrador Profissional", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Calibrador Profissional", 1280, 720)
+    cv2.setMouseCallback("Calibrador Profissional", mouse_callback)
 
-    print("Iniciando calibração...")
-    
     while True:
         ret, frame = cap.read()
-        if not ret:
-            break
+        if not ret: break
 
         img_draw = frame.copy()
 
-        # Desenha feedbacks
-        for i, p in enumerate(pontos_clicados):
-            cv2.circle(img_draw, p, 5, (0, 255, 255), -1)
-            cv2.circle(img_draw, p, RAIO_PADRAO, (255, 0, 0), 2)
-            cv2.putText(img_draw, f"P{i+1}", (p[0]-10, p[1]-10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,0), 2)
+        # 1. Desenha o polígono da bandeja
+        if len(pontos_bandeja) > 0:
+            for p in pontos_bandeja: cv2.circle(img_draw, p, 5, (0, 0, 255), -1)
+            if len(pontos_bandeja) > 1:
+                pts = np.array(pontos_bandeja, np.int32).reshape((-1, 1, 2))
+                cv2.polylines(img_draw, [pts], len(pontos_bandeja) == 4, (0, 255, 255), 2)
 
-        # Exibe a imagem. O OpenCV vai ajustar o frame de 1080p 
-        # para o tamanho da janela de 720p que definimos acima.
-        cv2.imshow("Calibrador de Bandeja", img_draw)
+        # 2. Desenha os berços
+        for i, p in enumerate(pontos_bercos):
+            cv2.circle(img_draw, p, 5, (0, 255, 0), -1)
+            cv2.circle(img_draw, p, RAIO_PADRAO, (255, 0, 0), 1)
 
-        if len(pontos_clicados) == 8 or (cv2.waitKey(1) & 0xFF == 27):
+        # Instruções na tela
+        msg = "Clique nos 4 CANTOS da BANDEJA" if len(pontos_bandeja) < 4 else "Clique nos 8 CENTROS dos BERCOS"
+        if len(pontos_bercos) == 8: msg = "Calibracao Concluida! Pressione qualquer tecla."
+        cv2.putText(img_draw, msg, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+        cv2.imshow("Calibrador Profissional", img_draw)
+        
+        if len(pontos_bercos) == 8:
+            cv2.waitKey(2000)
             break
+        if cv2.waitKey(1) & 0xFF == 27: return
 
-    # Salva o JSON
-    if len(pontos_clicados) == 8:
-        config_data = {"raio_padrao": RAIO_PADRAO, "posicoes": []}
-        for i, (cx, cy) in enumerate(pontos_clicados):
-            row, col = divmod(i, 4)
-            config_data["posicoes"].append({
-                "id": i + 1,
-                "matriz_idx": [row, col],
-                "centro": [cx, cy]
-            })
+    # Salva JSON com o polígono da bandeja e os berços
+    config_data = {
+        "limite_bandeja": pontos_bandeja,
+        "raio_padrao": RAIO_PADRAO,
+        "posicoes": []
+    }
+    for i, p in enumerate(pontos_bercos):
+        row, col = divmod(i, 4)
+        config_data["posicoes"].append({"id": i+1, "matriz_idx": [row, col], "centro": p})
 
-        with open(ARQUIVO_CONFIG, "w") as f:
-            json.dump(config_data, f, indent=4)
-        print(f"\nCalibração salva com sucesso!")
+    with open(ARQUIVO_CONFIG, "w") as f:
+        json.dump(config_data, f, indent=4)
     
+    print("Configuração salva!")
     cap.release()
     cv2.destroyAllWindows()
 
