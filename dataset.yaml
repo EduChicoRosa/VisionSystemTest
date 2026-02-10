@@ -1,0 +1,10 @@
+# Caminho absoluto ou relativo para a pasta do dataset
+path: ./dataset  
+
+# Subpastas (como temos poucas fotos, usaremos as mesmas para treino e validação)
+train: images
+val: images
+
+# Definição das classes
+names:
+  0: estator
